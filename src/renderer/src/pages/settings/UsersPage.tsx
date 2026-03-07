@@ -36,8 +36,6 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar'
 import { Badge } from '@/components/ui/badge'
 
-const PAGE_SIZE_OPTIONS = [10, 20, 50, 100]
-
 type SortOption = 'default' | 'undownloaded' | 'total'
 type ShowInHomeFilter = 'all' | 'yes' | 'no'
 type AutoSyncFilter = 'all' | 'yes' | 'no'
@@ -384,10 +382,16 @@ export default function UsersPage() {
   }
 
   const handleSelectAll = () => {
-    if (selectedIds.size === filteredUsers.length) {
-      setSelectedIds(new Set())
+    const pageIds = paginatedUsers.map((u) => u.id)
+    const allPageSelected = pageIds.every((id) => selectedIds.has(id))
+    if (allPageSelected) {
+      setSelectedIds((prev) => {
+        const next = new Set(prev)
+        pageIds.forEach((id) => next.delete(id))
+        return next
+      })
     } else {
-      setSelectedIds(new Set(filteredUsers.map((u) => u.id)))
+      setSelectedIds((prev) => new Set([...prev, ...pageIds]))
     }
   }
 
@@ -397,7 +401,12 @@ export default function UsersPage() {
       return
     }
     setBatchForm({ max_download_count: 0, show_in_home: true, auto_sync: false, sync_cron: '' })
-    setBatchEnabled({ max_download_count: false, show_in_home: false, auto_sync: false, sync_cron: false })
+    setBatchEnabled({
+      max_download_count: false,
+      show_in_home: false,
+      auto_sync: false,
+      sync_cron: false
+    })
     setBatchCronValid(true)
     setBatchEditOpen(true)
   }
@@ -408,7 +417,12 @@ export default function UsersPage() {
       toast.error('请至少勾选一个要修改的设置项')
       return
     }
-    if (batchEnabled.auto_sync && batchForm.auto_sync && batchEnabled.sync_cron && batchForm.sync_cron) {
+    if (
+      batchEnabled.auto_sync &&
+      batchForm.auto_sync &&
+      batchEnabled.sync_cron &&
+      batchForm.sync_cron
+    ) {
       const valid = await window.api.sync.validateCron(batchForm.sync_cron)
       if (!valid) {
         setBatchCronValid(false)
@@ -624,7 +638,9 @@ export default function UsersPage() {
             <div className="h-12 flex items-center px-5 bg-[#F5F5F7] text-[12px] font-semibold text-[#6E6E73] uppercase tracking-wide">
               <div className="w-10">
                 <Checkbox
-                  checked={filteredUsers.length > 0 && selectedIds.size === filteredUsers.length}
+                  checked={
+                    paginatedUsers.length > 0 && paginatedUsers.every((u) => selectedIds.has(u.id))
+                  }
                   onCheckedChange={handleSelectAll}
                 />
               </div>
@@ -701,7 +717,8 @@ export default function UsersPage() {
                   <div className="w-24 flex flex-col items-center gap-1">
                     {syncingUserIds.has(user.id) && syncProgressMap.get(user.id) ? (
                       <span className="text-xs text-[#0A84FF]">
-                        {syncProgressMap.get(user.id)!.downloadedCount}/{syncProgressMap.get(user.id)!.totalVideos || '?'}
+                        {syncProgressMap.get(user.id)!.downloadedCount}/
+                        {syncProgressMap.get(user.id)!.totalVideos || '?'}
                       </span>
                     ) : user.auto_sync ? (
                       <Badge variant="outline" className="text-xs border-green-500 text-green-600">
@@ -744,7 +761,9 @@ export default function UsersPage() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 text-[#6E6E73] hover:text-[#0A84FF]"
-                      onClick={() => window.api.system.openInAppBrowser(user.homepage_url, user.nickname)}
+                      onClick={() =>
+                        window.api.system.openInAppBrowser(user.homepage_url, user.nickname)
+                      }
                       title="打开主页"
                     >
                       <ExternalLink className="h-4 w-4" />
@@ -774,7 +793,10 @@ export default function UsersPage() {
                       variant="ghost"
                       size="icon"
                       className="h-8 w-8 text-[#6E6E73] hover:text-red-500"
-                      onClick={() => { setDeleteConfirm({ id: user.id, nickname: user.nickname }); setDeleteFiles(false) }}
+                      onClick={() => {
+                        setDeleteConfirm({ id: user.id, nickname: user.nickname })
+                        setDeleteFiles(false)
+                      }}
                       title="删除用户"
                     >
                       <Trash2 className="h-4 w-4" />
@@ -793,17 +815,16 @@ export default function UsersPage() {
                   </span>
                   <div className="flex items-center gap-2">
                     <span className="text-sm text-[#6E6E73]">每页</span>
-                    <select
+                    <input
+                      type="number"
+                      min={1}
                       value={pageSize}
-                      onChange={(e) => setPageSize(Number(e.target.value))}
-                      className="h-8 px-2 text-sm border border-[#E5E5E7] rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-[#0A84FF]/20"
-                    >
-                      {PAGE_SIZE_OPTIONS.map((size) => (
-                        <option key={size} value={size}>
-                          {size}
-                        </option>
-                      ))}
-                    </select>
+                      onChange={(e) => {
+                        const v = parseInt(e.target.value, 10)
+                        if (v > 0) setPageSize(v)
+                      }}
+                      className="h-8 w-16 px-2 text-sm text-center border border-[#E5E5E7] rounded-md bg-white focus:outline-none focus:ring-2 focus:ring-[#0A84FF]/20"
+                    />
                     <span className="text-sm text-[#6E6E73]">条</span>
                   </div>
                 </div>
@@ -1065,16 +1086,12 @@ export default function UsersPage() {
                     setBatchEnabled((e) => ({ ...e, auto_sync: !!checked }))
                   }
                 />
-                <Label className={!batchEnabled.auto_sync ? 'text-[#A1A1A6]' : ''}>
-                  自动同步
-                </Label>
+                <Label className={!batchEnabled.auto_sync ? 'text-[#A1A1A6]' : ''}>自动同步</Label>
               </div>
               <Switch
                 disabled={!batchEnabled.auto_sync}
                 checked={batchForm.auto_sync}
-                onCheckedChange={(checked) =>
-                  setBatchForm((f) => ({ ...f, auto_sync: checked }))
-                }
+                onCheckedChange={(checked) => setBatchForm((f) => ({ ...f, auto_sync: checked }))}
               />
             </div>
             {batchEnabled.auto_sync && batchForm.auto_sync && (
@@ -1130,7 +1147,8 @@ export default function UsersPage() {
           <DialogHeader>
             <DialogTitle>确认删除</DialogTitle>
             <DialogDescription>
-              确定要删除用户 <span className="font-medium text-[#1D1D1F]">{deleteConfirm?.nickname}</span> 吗？
+              确定要删除用户{' '}
+              <span className="font-medium text-[#1D1D1F]">{deleteConfirm?.nickname}</span> 吗？
             </DialogDescription>
           </DialogHeader>
           <div className="py-4">
@@ -1141,7 +1159,9 @@ export default function UsersPage() {
               />
               <div>
                 <p className="text-sm font-medium text-[#1D1D1F]">同时删除已下载文件</p>
-                <p className="text-xs text-[#A1A1A6] mt-0.5">删除该用户下载到本地的所有视频和图片文件</p>
+                <p className="text-xs text-[#A1A1A6] mt-0.5">
+                  删除该用户下载到本地的所有视频和图片文件
+                </p>
               </div>
             </label>
             {deleteFiles && (
@@ -1149,15 +1169,19 @@ export default function UsersPage() {
             )}
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteConfirm(null)} disabled={deleteLoading}>
-              取消
-            </Button>
             <Button
-              variant="destructive"
-              onClick={handleDeleteConfirm}
+              variant="outline"
+              onClick={() => setDeleteConfirm(null)}
               disabled={deleteLoading}
             >
-              {deleteLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              取消
+            </Button>
+            <Button variant="destructive" onClick={handleDeleteConfirm} disabled={deleteLoading}>
+              {deleteLoading ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-2" />
+              )}
               确认删除
             </Button>
           </DialogFooter>
