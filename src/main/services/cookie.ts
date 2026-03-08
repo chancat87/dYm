@@ -1,6 +1,7 @@
 import { BrowserWindow, session } from 'electron'
 import { setSetting } from '../database'
 import { refreshDouyinHandler } from './douyin'
+import { blockCustomProtocols } from '../utils/block-protocols'
 
 // Cookie 刷新状态
 let isRefreshing = false
@@ -26,6 +27,7 @@ export async function fetchDouyinCookie(): Promise<string> {
       }
     })
 
+    blockCustomProtocols(win)
     win.loadURL('https://www.douyin.com')
 
     win.on('closed', async () => {
@@ -142,6 +144,7 @@ export async function refreshDouyinCookieSilent(): Promise<string> {
       resolve('')
     })
 
+    blockCustomProtocols(win)
     win.loadURL('https://www.douyin.com')
   })
 }

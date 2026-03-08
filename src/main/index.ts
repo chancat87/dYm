@@ -80,6 +80,7 @@ import {
   convertFolderImagesToJpg
 } from './services/downloader'
 import { startAnalysis, stopAnalysis, isAnalysisRunning } from './services/analyzer'
+import { blockCustomProtocols } from './utils/block-protocols'
 import { initUpdater, registerUpdaterHandlers } from './services/updater'
 import {
   startUserSync,
@@ -1034,6 +1035,7 @@ app.whenReady().then(() => {
         contextIsolation: true
       }
     })
+    blockCustomProtocols(win)
     win.loadURL(url)
   })
 
