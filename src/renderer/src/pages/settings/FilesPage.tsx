@@ -10,7 +10,10 @@ import {
   FolderOpen,
   ChevronDown,
   Search,
-  X
+  X,
+  RefreshCw,
+  ShieldAlert,
+  AlertTriangle
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -60,10 +63,18 @@ export default function FilesPage() {
   const [selectedPost, setSelectedPost] = useState<DbPost | null>(null)
   const [viewerOpen, setViewerOpen] = useState(false)
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
-  const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'post' | 'batch' | 'user'; id?: number; count?: number } | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    type: 'post' | 'batch' | 'user'
+    id?: number
+    count?: number
+  } | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [showUserDropdown, setShowUserDropdown] = useState(false)
   const [userSearch, setUserSearch] = useState('')
+  const [scanning, setScanning] = useState(false)
+  const [brokenPosts, setBrokenPosts] = useState<BrokenPostInfo[]>([])
+  const [showBrokenDialog, setShowBrokenDialog] = useState(false)
+  const [fixingAll, setFixingAll] = useState(false)
   const dropdownRef = useRef<HTMLDivElement>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const sentinelRef = useRef<HTMLDivElement>(null)
@@ -71,7 +82,9 @@ export default function FilesPage() {
   const totalSize = users.reduce((sum, u) => sum + u.fileSize, 0)
   const totalFiles = users.reduce((sum, u) => sum + u.folderCount, 0)
 
-  useEffect(() => { loadUsers() }, [])
+  useEffect(() => {
+    loadUsers()
+  }, [])
 
   useEffect(() => {
     if (selectedUser) {
@@ -264,6 +277,39 @@ export default function FilesPage() {
     return path ? `local://${path}` : null
   }
 
+  const handleScanBroken = async () => {
+    setScanning(true)
+    try {
+      const results = await window.api.post.scanBroken()
+      setBrokenPosts(results)
+      setShowBrokenDialog(true)
+      if (results.length === 0) {
+        toast.success('所有文件完好，未发现损坏')
+      }
+    } catch {
+      toast.error('扫描失败')
+    } finally {
+      setScanning(false)
+    }
+  }
+
+  const handleFixAllBroken = async () => {
+    if (brokenPosts.length === 0) return
+    setFixingAll(true)
+    try {
+      const awemeIds = brokenPosts.map((p) => p.awemeId)
+      const result = await window.api.post.batchRedownload(awemeIds)
+      toast.success(`已标记 ${result.success} 个作品重新下载`)
+      setBrokenPosts([])
+      setShowBrokenDialog(false)
+      await reloadCurrentUser()
+    } catch {
+      toast.error('批量修复失败')
+    } finally {
+      setFixingAll(false)
+    }
+  }
+
   const isImagePost = (post: DbPost) => post.aweme_type === IMAGE_AWEME_TYPE
 
   const formatDate = (dateStr: string) => {
@@ -292,6 +338,14 @@ export default function FilesPage() {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={handleScanBroken} disabled={scanning}>
+            {scanning ? (
+              <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+            ) : (
+              <ShieldAlert className="h-4 w-4 mr-2" />
+            )}
+            {scanning ? '扫描中...' : '扫描损坏文件'}
+          </Button>
           {selectedIds.size > 0 && (
             <Button
               variant="outline"
@@ -329,13 +383,21 @@ export default function FilesPage() {
               <HardDrive className="h-4 w-4 text-[#6E6E73]" />
               <span>{selectedUser?.nickname || '选择用户'}</span>
               {selectedUser && (
-                <span className="text-xs text-[#A1A1A6]">({formatSize(selectedUser.fileSize)})</span>
+                <span className="text-xs text-[#A1A1A6]">
+                  ({formatSize(selectedUser.fileSize)})
+                </span>
               )}
-              <ChevronDown className={`h-4 w-4 text-[#6E6E73] transition-transform ${showUserDropdown ? 'rotate-180' : ''}`} />
+              <ChevronDown
+                className={`h-4 w-4 text-[#6E6E73] transition-transform ${showUserDropdown ? 'rotate-180' : ''}`}
+              />
             </button>
             {selectedUser && (
               <button
-                onClick={(e) => { e.stopPropagation(); setSelectedUser(null); setPosts([]) }}
+                onClick={(e) => {
+                  e.stopPropagation()
+                  setSelectedUser(null)
+                  setPosts([])
+                }}
                 className="absolute -right-2 -top-2 h-5 w-5 flex items-center justify-center rounded-full bg-[#0A84FF] text-white"
               >
                 <X className="h-3 w-3" />
@@ -389,9 +451,7 @@ export default function FilesPage() {
                 checked={selectedIds.size === posts.length && posts.length > 0}
                 onCheckedChange={selectAll}
               />
-              <span className="text-sm text-[#6E6E73]">
-                全选 ({posts.length})
-              </span>
+              <span className="text-sm text-[#6E6E73]">全选 ({posts.length})</span>
             </div>
           )}
         </div>
@@ -432,96 +492,128 @@ export default function FilesPage() {
             </div>
           ) : (
             <>
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5 pt-4">
-              {posts.map((post) => (
-                <ContextMenu key={post.id}>
-                  <ContextMenuTrigger asChild>
-                    <Card
-                      className="overflow-hidden cursor-pointer hover:shadow-md transition-shadow group border-[#E5E5E7] bg-white relative"
-                      onClick={() => { setSelectedPost(post); setViewerOpen(true) }}
-                    >
-                      {/* Select checkbox */}
-                      <div
-                        className="absolute top-2 right-2 z-10"
-                        onClick={(e) => { e.stopPropagation(); toggleSelect(post.id) }}
+              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-5 pt-4">
+                {posts.map((post) => (
+                  <ContextMenu key={post.id}>
+                    <ContextMenuTrigger asChild>
+                      <Card
+                        className="overflow-hidden cursor-pointer hover:shadow-md transition-shadow group border-[#E5E5E7] bg-white relative"
+                        onClick={() => {
+                          setSelectedPost(post)
+                          setViewerOpen(true)
+                        }}
                       >
-                        <div className={`h-6 w-6 rounded-md border-2 flex items-center justify-center transition-colors ${selectedIds.has(post.id) ? 'bg-[#0A84FF] border-[#0A84FF]' : 'bg-white/80 border-white/60 group-hover:border-white'}`}>
-                          {selectedIds.has(post.id) && (
-                            <svg className="h-4 w-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                            </svg>
-                          )}
-                        </div>
-                      </div>
-
-                      <div className="aspect-[9/16] bg-[#F2F2F4] relative">
-                        {getCoverUrl(post) ? (
-                          <img
-                            src={getCoverUrl(post)!}
-                            alt={post.desc}
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            {isImagePost(post) ? (
-                              <Images className="h-12 w-12 text-[#A1A1A6]" />
-                            ) : (
-                              <Video className="h-12 w-12 text-[#A1A1A6]" />
+                        {/* Select checkbox */}
+                        <div
+                          className="absolute top-2 right-2 z-10"
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            toggleSelect(post.id)
+                          }}
+                        >
+                          <div
+                            className={`h-6 w-6 rounded-md border-2 flex items-center justify-center transition-colors ${selectedIds.has(post.id) ? 'bg-[#0A84FF] border-[#0A84FF]' : 'bg-white/80 border-white/60 group-hover:border-white'}`}
+                          >
+                            {selectedIds.has(post.id) && (
+                              <svg
+                                className="h-4 w-4 text-white"
+                                fill="none"
+                                viewBox="0 0 24 24"
+                                stroke="currentColor"
+                                strokeWidth={3}
+                              >
+                                <path
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                  d="M5 13l4 4L19 7"
+                                />
+                              </svg>
                             )}
                           </div>
-                        )}
-                        <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
-                          {isImagePost(post) ? (
-                            <Images className="h-12 w-12 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
+
+                        <div className="aspect-[9/16] bg-[#F2F2F4] relative">
+                          {getCoverUrl(post) ? (
+                            <img
+                              src={getCoverUrl(post)!}
+                              alt={post.desc}
+                              className="w-full h-full object-cover"
+                            />
                           ) : (
-                            <Play className="h-12 w-12 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                            <div className="w-full h-full flex items-center justify-center">
+                              {isImagePost(post) ? (
+                                <Images className="h-12 w-12 text-[#A1A1A6]" />
+                              ) : (
+                                <Video className="h-12 w-12 text-[#A1A1A6]" />
+                              )}
+                            </div>
+                          )}
+                          <div className="absolute inset-0 bg-black/0 group-hover:bg-black/30 transition-colors flex items-center justify-center">
+                            {isImagePost(post) ? (
+                              <Images className="h-12 w-12 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                            ) : (
+                              <Play className="h-12 w-12 text-white opacity-0 group-hover:opacity-100 transition-opacity" />
+                            )}
+                          </div>
+                          <div className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-0.5 rounded">
+                            {isImagePost(post) ? '图集' : '视频'}
+                          </div>
+                          {post.create_time && (
+                            <div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-0.5 rounded">
+                              {formatDate(post.create_time)}
+                            </div>
                           )}
                         </div>
-                        <div className="absolute top-2 left-2 bg-black/60 text-white text-xs px-2 py-0.5 rounded">
-                          {isImagePost(post) ? '图集' : '视频'}
+                        <div className="p-3">
+                          <p className="text-sm font-medium text-[#1D1D1F] line-clamp-2">
+                            {post.desc || post.caption || '无标题'}
+                          </p>
+                          <p className="text-xs text-[#6E6E73] mt-1">@{post.nickname}</p>
                         </div>
-                        {post.create_time && (
-                          <div className="absolute bottom-2 right-2 bg-black/60 text-white text-xs px-2 py-0.5 rounded">
-                            {formatDate(post.create_time)}
-                          </div>
-                        )}
-                      </div>
-                      <div className="p-3">
-                        <p className="text-sm font-medium text-[#1D1D1F] line-clamp-2">
-                          {post.desc || post.caption || '无标题'}
-                        </p>
-                        <p className="text-xs text-[#6E6E73] mt-1">@{post.nickname}</p>
-                      </div>
-                    </Card>
-                  </ContextMenuTrigger>
-                  <ContextMenuContent>
-                    <ContextMenuItem
-                      onClick={() => window.api.post.openFolder(post.sec_uid, post.folder_name)}
-                    >
-                      <FolderOpen className="h-4 w-4 mr-2" />
-                      在文件管理器中打开
-                    </ContextMenuItem>
-                    <ContextMenuItem
-                      onClick={() => setDeleteConfirm({ type: 'post', id: post.id })}
-                      className="text-red-600"
-                    >
-                      <Trash2 className="h-4 w-4 mr-2" />
-                      删除文件
-                    </ContextMenuItem>
-                  </ContextMenuContent>
-                </ContextMenu>
-              ))}
-            </div>
+                      </Card>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent>
+                      <ContextMenuItem
+                        onClick={() => window.api.post.openFolder(post.sec_uid, post.folder_name)}
+                      >
+                        <FolderOpen className="h-4 w-4 mr-2" />
+                        在文件管理器中打开
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onClick={async () => {
+                          try {
+                            await window.api.post.redownload(post.aweme_id)
+                            toast.success('已标记重新下载，下次同步时将重新下载此作品')
+                            await reloadCurrentUser()
+                          } catch (e) {
+                            toast.error('重新下载标记失败: ' + (e as Error).message)
+                          }
+                        }}
+                      >
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        重新下载
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onClick={() => setDeleteConfirm({ type: 'post', id: post.id })}
+                        className="text-red-600"
+                      >
+                        <Trash2 className="h-4 w-4 mr-2" />
+                        删除文件
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
+                ))}
+              </div>
 
-            {/* Infinite scroll sentinel */}
-            <div ref={sentinelRef} className="h-10 flex items-center justify-center mt-4">
-              {loadingMore && (
-                <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#0A84FF]" />
-              )}
-              {!hasMore && posts.length > 0 && (
-                <span className="text-sm text-[#A1A1A6]">已加载全部 {postTotal} 个作品</span>
-              )}
-            </div>
+              {/* Infinite scroll sentinel */}
+              <div ref={sentinelRef} className="h-10 flex items-center justify-center mt-4">
+                {loadingMore && (
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-[#0A84FF]" />
+                )}
+                {!hasMore && posts.length > 0 && (
+                  <span className="text-sm text-[#A1A1A6]">已加载全部 {postTotal} 个作品</span>
+                )}
+              </div>
             </>
           )}
         </div>
@@ -535,6 +627,52 @@ export default function FilesPage() {
         onSelectPost={setSelectedPost}
       />
 
+      {/* Broken Files Dialog */}
+      <Dialog open={showBrokenDialog} onOpenChange={setShowBrokenDialog}>
+        <DialogContent className="sm:max-w-[520px]">
+          <DialogHeader>
+            <DialogTitle>损坏文件扫描结果</DialogTitle>
+            <DialogDescription>
+              {brokenPosts.length === 0
+                ? '所有文件完好'
+                : `发现 ${brokenPosts.length} 个损坏文件，标记重新下载后将在下次同步时修复`}
+            </DialogDescription>
+          </DialogHeader>
+          {brokenPosts.length > 0 && (
+            <div className="max-h-72 overflow-y-auto space-y-2">
+              {brokenPosts.map((bp) => (
+                <div
+                  key={bp.awemeId}
+                  className="flex items-start gap-3 p-3 rounded-lg bg-[#FFF8F0] border border-orange-100"
+                >
+                  <AlertTriangle className="h-4 w-4 text-orange-500 mt-0.5 flex-shrink-0" />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-sm font-medium text-[#1D1D1F] truncate">@{bp.nickname}</p>
+                    <p className="text-xs text-[#6E6E73] mt-0.5">{bp.awemeId}</p>
+                    <p className="text-xs text-orange-600 mt-0.5">{bp.reason}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setShowBrokenDialog(false)}>
+              关闭
+            </Button>
+            {brokenPosts.length > 0 && (
+              <Button onClick={handleFixAllBroken} disabled={fixingAll}>
+                {fixingAll ? (
+                  <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+                ) : (
+                  <RefreshCw className="h-4 w-4 mr-2" />
+                )}
+                全部重新下载 ({brokenPosts.length})
+              </Button>
+            )}
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
       {/* Delete Confirm Dialog */}
       <Dialog open={!!deleteConfirm} onOpenChange={(open) => !open && setDeleteConfirm(null)}>
         <DialogContent className="sm:max-w-[400px]">
@@ -542,17 +680,27 @@ export default function FilesPage() {
             <DialogTitle>确认删除</DialogTitle>
             <DialogDescription>
               {deleteConfirm?.type === 'post' && '确定要删除该作品的文件吗？'}
-              {deleteConfirm?.type === 'batch' && `确定要删除选中的 ${deleteConfirm.count} 个文件吗？`}
-              {deleteConfirm?.type === 'user' && `确定要删除 ${selectedUser?.nickname} 的所有文件吗？`}
+              {deleteConfirm?.type === 'batch' &&
+                `确定要删除选中的 ${deleteConfirm.count} 个文件吗？`}
+              {deleteConfirm?.type === 'user' &&
+                `确定要删除 ${selectedUser?.nickname} 的所有文件吗？`}
             </DialogDescription>
           </DialogHeader>
           <p className="text-xs text-red-500 px-1">此操作不可撤销，文件将被永久删除</p>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setDeleteConfirm(null)} disabled={deleteLoading}>
+            <Button
+              variant="outline"
+              onClick={() => setDeleteConfirm(null)}
+              disabled={deleteLoading}
+            >
               取消
             </Button>
             <Button variant="destructive" onClick={handleConfirmDelete} disabled={deleteLoading}>
-              {deleteLoading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Trash2 className="h-4 w-4 mr-2" />}
+              {deleteLoading ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-2" />
+              )}
               确认删除
             </Button>
           </DialogFooter>

@@ -835,6 +835,94 @@ app.whenReady().then(() => {
     return count
   })
 
+  // Post integrity check & redownload IPC handlers
+  ipcMain.handle('post:scanBroken', async () => {
+    const { checkPostFileIntegrity } = await import('./services/download-validator')
+    const { getPostsByUserIdAll } = await import('./database')
+    const downloadPath = getDownloadPath()
+    const results: {
+      postId: number
+      awemeId: string
+      nickname: string
+      folderPath: string
+      reason: string
+    }[] = []
+
+    const users = getAllUsers()
+    for (const user of users) {
+      const posts = getPostsByUserIdAll(user.id)
+      for (const post of posts) {
+        const folderPath = join(downloadPath, user.sec_uid, post.folder_name)
+        const { valid, reason } = checkPostFileIntegrity(folderPath, post.aweme_type)
+        if (!valid) {
+          results.push({
+            postId: post.id,
+            awemeId: post.aweme_id,
+            nickname: post.nickname,
+            folderPath,
+            reason
+          })
+        }
+      }
+    }
+    return results
+  })
+
+  ipcMain.handle('post:redownload', async (_event, awemeId: string) => {
+    const { deletePostByAwemeId } = await import('./database')
+    const { cleanupFailedDownload } = await import('./services/download-validator')
+
+    const post = deletePostByAwemeId(awemeId)
+    if (!post) throw new Error('作品记录不存在')
+
+    if (post.video_path) {
+      cleanupFailedDownload(post.video_path)
+      if (existsSync(post.video_path)) {
+        const files = readdirSync(post.video_path)
+        const nonTmpFiles = files.filter((f) => !f.endsWith('.tmp'))
+        if (nonTmpFiles.length === 0) {
+          rmSync(post.video_path, { recursive: true, force: true })
+        }
+      }
+    }
+
+    return { success: true, message: '已删除记录，下次同步时将重新下载' }
+  })
+
+  ipcMain.handle('post:batchRedownload', async (_event, awemeIds: string[]) => {
+    const { deletePostByAwemeId } = await import('./database')
+    const { cleanupFailedDownload } = await import('./services/download-validator')
+
+    let success = 0
+    let failed = 0
+
+    for (const awemeId of awemeIds) {
+      try {
+        const post = deletePostByAwemeId(awemeId)
+        if (!post) {
+          failed++
+          continue
+        }
+
+        if (post.video_path) {
+          cleanupFailedDownload(post.video_path)
+          if (existsSync(post.video_path)) {
+            const files = readdirSync(post.video_path)
+            const nonTmpFiles = files.filter((f) => !f.endsWith('.tmp'))
+            if (nonTmpFiles.length === 0) {
+              rmSync(post.video_path, { recursive: true, force: true })
+            }
+          }
+        }
+        success++
+      } catch {
+        failed++
+      }
+    }
+
+    return { success, failed }
+  })
+
   // Database IPC handlers
   ipcMain.handle('db:execute', (_event, sql: string, params?: unknown[]) => {
     const db = getDatabase()

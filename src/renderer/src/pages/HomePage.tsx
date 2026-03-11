@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react'
+import { toast } from 'sonner'
 import {
   Video,
   Play,
@@ -9,7 +10,8 @@ import {
   FolderOpen,
   Search,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  RefreshCw
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -593,6 +595,19 @@ export default function HomePage() {
                       >
                         <FolderOpen className="h-4 w-4 mr-2" />
                         在文件管理器中打开
+                      </ContextMenuItem>
+                      <ContextMenuItem
+                        onClick={async () => {
+                          try {
+                            await window.api.post.redownload(post.aweme_id)
+                            toast.success('已标记重新下载，下次同步时将重新下载此作品')
+                          } catch (e) {
+                            toast.error('重新下载标记失败: ' + (e as Error).message)
+                          }
+                        }}
+                      >
+                        <RefreshCw className="h-4 w-4 mr-2" />
+                        重新下载
                       </ContextMenuItem>
                     </ContextMenuContent>
                   </ContextMenu>

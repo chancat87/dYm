@@ -244,12 +244,31 @@ declare global {
     analyzedOnly?: boolean
   }
 
+  interface BrokenPostInfo {
+    postId: number
+    awemeId: string
+    nickname: string
+    folderPath: string
+    reason: string
+  }
+
   interface PostAPI {
-    getAll: (page?: number, pageSize?: number, filters?: PostFilters) => Promise<{ posts: DbPost[]; total: number; authors: PostAuthor[] }>
+    getAll: (
+      page?: number,
+      pageSize?: number,
+      filters?: PostFilters
+    ) => Promise<{ posts: DbPost[]; total: number; authors: PostAuthor[] }>
     getAllTags: () => Promise<string[]>
     getCoverPath: (secUid: string, folderName: string) => Promise<string | null>
-    getMediaFiles: (secUid: string, folderName: string, awemeType: number) => Promise<MediaFiles | null>
+    getMediaFiles: (
+      secUid: string,
+      folderName: string,
+      awemeType: number
+    ) => Promise<MediaFiles | null>
     openFolder: (secUid: string, folderName: string) => Promise<void>
+    scanBroken: () => Promise<BrokenPostInfo[]>
+    redownload: (awemeId: string) => Promise<{ success: boolean; message: string }>
+    batchRedownload: (awemeIds: string[]) => Promise<{ success: number; failed: number }>
   }
 
   interface AnalysisProgress {
@@ -363,7 +382,11 @@ declare global {
   }
 
   interface FilesAPI {
-    getUserPosts: (userId: number, page?: number, pageSize?: number) => Promise<{ posts: DbPost[]; total: number }>
+    getUserPosts: (
+      userId: number,
+      page?: number,
+      pageSize?: number
+    ) => Promise<{ posts: DbPost[]; total: number }>
     getFileSizes: (secUid: string) => Promise<{ totalSize: number; folderCount: number }>
     getPostSize: (secUid: string, folderName: string) => Promise<number>
     deletePost: (postId: number) => Promise<boolean>

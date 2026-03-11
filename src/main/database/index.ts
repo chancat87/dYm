@@ -201,7 +201,10 @@ export function initDatabase(): void {
     { name: 'analysis_category', sql: 'ALTER TABLE posts ADD COLUMN analysis_category TEXT' },
     { name: 'analysis_summary', sql: 'ALTER TABLE posts ADD COLUMN analysis_summary TEXT' },
     { name: 'analysis_scene', sql: 'ALTER TABLE posts ADD COLUMN analysis_scene TEXT' },
-    { name: 'analysis_content_level', sql: 'ALTER TABLE posts ADD COLUMN analysis_content_level INTEGER' },
+    {
+      name: 'analysis_content_level',
+      sql: 'ALTER TABLE posts ADD COLUMN analysis_content_level INTEGER'
+    },
     { name: 'analyzed_at', sql: 'ALTER TABLE posts ADD COLUMN analyzed_at INTEGER' }
   ]
   for (const col of analysisColumns) {
@@ -257,7 +260,12 @@ export function getSetting(key: string): string | null {
 
 export function setSetting(key: string, value: string): void {
   const database = getDatabase()
-  console.log('[Database] setSetting:', key, '=', value.substring(0, 50) + (value.length > 50 ? '...' : ''))
+  console.log(
+    '[Database] setSetting:',
+    key,
+    '=',
+    value.substring(0, 50) + (value.length > 50 ? '...' : '')
+  )
   database
     .prepare(
       `
@@ -364,12 +372,16 @@ export function getUserBySecUid(secUid: string): DbUser | undefined {
 export function getAllUsers(): DbUser[] {
   const database = getDatabase()
   // 动态统计 downloaded_count
-  return database.prepare(`
+  return database
+    .prepare(
+      `
     SELECT u.*, COALESCE(p.cnt, 0) as downloaded_count
     FROM users u
     LEFT JOIN (SELECT user_id, COUNT(*) as cnt FROM posts GROUP BY user_id) p ON u.id = p.user_id
     ORDER BY u.created_at DESC
-  `).all() as DbUser[]
+  `
+    )
+    .all() as DbUser[]
 }
 
 export function updateUser(id: number, input: Partial<CreateUserInput>): DbUser | undefined {
@@ -386,7 +398,7 @@ export function updateUser(id: number, input: Partial<CreateUserInput>): DbUser 
 
   if (fields.length === 0) return getUserById(id)
 
-  fields.push('updated_at = strftime(\'%s\', \'now\')')
+  fields.push("updated_at = strftime('%s', 'now')")
   values.push(id)
 
   database.prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...values)
@@ -405,7 +417,9 @@ export function deleteUser(id: number): { sec_uid: string } | undefined {
 
 export function setUserShowInHome(id: number, show: boolean): void {
   const database = getDatabase()
-  database.prepare('UPDATE users SET show_in_home = ?, updated_at = strftime(\'%s\', \'now\') WHERE id = ?').run(show ? 1 : 0, id)
+  database
+    .prepare("UPDATE users SET show_in_home = ?, updated_at = strftime('%s', 'now') WHERE id = ?")
+    .run(show ? 1 : 0, id)
 }
 
 export interface UpdateUserSettingsInput {
@@ -444,34 +458,51 @@ export function updateUserSettings(id: number, input: UpdateUserSettingsInput): 
 
   if (fields.length === 0) return getUserById(id)
 
-  fields.push('updated_at = strftime(\'%s\', \'now\')')
+  fields.push("updated_at = strftime('%s', 'now')")
   values.push(id)
 
   database.prepare(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`).run(...values)
   return getUserById(id)
 }
 
-export function updateUserSyncStatus(id: number, status: 'idle' | 'syncing' | 'error', lastSyncAt?: number): void {
+export function updateUserSyncStatus(
+  id: number,
+  status: 'idle' | 'syncing' | 'error',
+  lastSyncAt?: number
+): void {
   const database = getDatabase()
   if (lastSyncAt !== undefined) {
-    database.prepare('UPDATE users SET sync_status = ?, last_sync_at = ?, updated_at = strftime(\'%s\', \'now\') WHERE id = ?').run(status, lastSyncAt, id)
+    database
+      .prepare(
+        "UPDATE users SET sync_status = ?, last_sync_at = ?, updated_at = strftime('%s', 'now') WHERE id = ?"
+      )
+      .run(status, lastSyncAt, id)
   } else {
-    database.prepare('UPDATE users SET sync_status = ?, updated_at = strftime(\'%s\', \'now\') WHERE id = ?').run(status, id)
+    database
+      .prepare("UPDATE users SET sync_status = ?, updated_at = strftime('%s', 'now') WHERE id = ?")
+      .run(status, id)
   }
 }
 
 export function getAutoSyncUsers(): DbUser[] {
   const database = getDatabase()
-  return database.prepare(`
+  return database
+    .prepare(
+      `
     SELECT u.*, COALESCE(p.cnt, 0) as downloaded_count
     FROM users u
     LEFT JOIN (SELECT user_id, COUNT(*) as cnt FROM posts GROUP BY user_id) p ON u.id = p.user_id
     WHERE u.auto_sync = 1
     ORDER BY u.created_at DESC
-  `).all() as DbUser[]
+  `
+    )
+    .all() as DbUser[]
 }
 
-export function batchUpdateUserSettings(ids: number[], input: Omit<UpdateUserSettingsInput, 'remark'>): void {
+export function batchUpdateUserSettings(
+  ids: number[],
+  input: Omit<UpdateUserSettingsInput, 'remark'>
+): void {
   const database = getDatabase()
   const fields: string[] = []
   const values: unknown[] = []
@@ -495,10 +526,12 @@ export function batchUpdateUserSettings(ids: number[], input: Omit<UpdateUserSet
 
   if (fields.length === 0) return
 
-  fields.push('updated_at = strftime(\'%s\', \'now\')')
+  fields.push("updated_at = strftime('%s', 'now')")
 
   const placeholders = ids.map(() => '?').join(',')
-  database.prepare(`UPDATE users SET ${fields.join(', ')} WHERE id IN (${placeholders})`).run(...values, ...ids)
+  database
+    .prepare(`UPDATE users SET ${fields.join(', ')} WHERE id IN (${placeholders})`)
+    .run(...values, ...ids)
 }
 
 // Download Task CRUD
@@ -553,39 +586,54 @@ export function createTask(input: CreateTaskInput): DbTaskWithUsers {
 
 export function getTaskById(id: number): DbTaskWithUsers | undefined {
   const database = getDatabase()
-  const task = database.prepare('SELECT * FROM download_tasks WHERE id = ?').get(id) as DbTask | undefined
+  const task = database.prepare('SELECT * FROM download_tasks WHERE id = ?').get(id) as
+    | DbTask
+    | undefined
   if (!task) return undefined
 
   // 动态统计 downloaded_count
-  const users = database.prepare(`
+  const users = database
+    .prepare(
+      `
     SELECT u.*, COALESCE(p.cnt, 0) as downloaded_count
     FROM users u
     INNER JOIN task_users tu ON u.id = tu.user_id
     LEFT JOIN (SELECT user_id, COUNT(*) as cnt FROM posts GROUP BY user_id) p ON u.id = p.user_id
     WHERE tu.task_id = ?
-  `).all(id) as DbUser[]
+  `
+    )
+    .all(id) as DbUser[]
 
   return { ...task, users }
 }
 
 export function getAllTasks(): DbTaskWithUsers[] {
   const database = getDatabase()
-  const tasks = database.prepare('SELECT * FROM download_tasks ORDER BY created_at DESC').all() as DbTask[]
+  const tasks = database
+    .prepare('SELECT * FROM download_tasks ORDER BY created_at DESC')
+    .all() as DbTask[]
 
-  return tasks.map(task => {
+  return tasks.map((task) => {
     // 动态统计 downloaded_count
-    const users = database.prepare(`
+    const users = database
+      .prepare(
+        `
       SELECT u.*, COALESCE(p.cnt, 0) as downloaded_count
       FROM users u
       INNER JOIN task_users tu ON u.id = tu.user_id
       LEFT JOIN (SELECT user_id, COUNT(*) as cnt FROM posts GROUP BY user_id) p ON u.id = p.user_id
       WHERE tu.task_id = ?
-    `).all(task.id) as DbUser[]
+    `
+      )
+      .all(task.id) as DbUser[]
     return { ...task, users }
   })
 }
 
-export function updateTask(id: number, input: Partial<Omit<DbTask, 'id' | 'created_at'>>): DbTaskWithUsers | undefined {
+export function updateTask(
+  id: number,
+  input: Partial<Omit<DbTask, 'id' | 'created_at'>>
+): DbTaskWithUsers | undefined {
   const database = getDatabase()
   const fields: string[] = []
   const values: unknown[] = []
@@ -599,7 +647,7 @@ export function updateTask(id: number, input: Partial<Omit<DbTask, 'id' | 'creat
 
   if (fields.length === 0) return getTaskById(id)
 
-  fields.push('updated_at = strftime(\'%s\', \'now\')')
+  fields.push("updated_at = strftime('%s', 'now')")
   values.push(id)
 
   database.prepare(`UPDATE download_tasks SET ${fields.join(', ')} WHERE id = ?`).run(...values)
@@ -615,7 +663,9 @@ export function updateTaskUsers(taskId: number, userIds: number[]): DbTaskWithUs
     insertStmt.run(taskId, userId)
   }
 
-  database.prepare('UPDATE download_tasks SET updated_at = strftime(\'%s\', \'now\') WHERE id = ?').run(taskId)
+  database
+    .prepare("UPDATE download_tasks SET updated_at = strftime('%s', 'now') WHERE id = ?")
+    .run(taskId)
   return getTaskById(taskId)
 }
 
@@ -728,10 +778,16 @@ export function getPostById(id: number): DbPost | undefined {
 
 export function getPostByAwemeId(awemeId: string): DbPost | undefined {
   const database = getDatabase()
-  return database.prepare('SELECT * FROM posts WHERE aweme_id = ?').get(awemeId) as DbPost | undefined
+  return database.prepare('SELECT * FROM posts WHERE aweme_id = ?').get(awemeId) as
+    | DbPost
+    | undefined
 }
 
-export function getPostsByUserId(userId: number, page = 1, pageSize = 50): { posts: DbPost[]; total: number } {
+export function getPostsByUserId(
+  userId: number,
+  page = 1,
+  pageSize = 50
+): { posts: DbPost[]; total: number } {
   const database = getDatabase()
   const offset = (page - 1) * pageSize
   const posts = database
@@ -745,7 +801,9 @@ export function getPostsByUserId(userId: number, page = 1, pageSize = 50): { pos
 
 export function getPostCountByUserId(userId: number): number {
   const database = getDatabase()
-  const row = database.prepare('SELECT COUNT(*) as count FROM posts WHERE user_id = ?').get(userId) as { count: number }
+  const row = database
+    .prepare('SELECT COUNT(*) as count FROM posts WHERE user_id = ?')
+    .get(userId) as { count: number }
   return row.count
 }
 
@@ -783,7 +841,9 @@ export function getAllPosts(
   // 获取可见作者列表
   const placeholders = visibleSecUids.map(() => '?').join(',')
   const authorsRows = database
-    .prepare(`SELECT DISTINCT sec_uid, nickname FROM posts WHERE sec_uid IN (${placeholders}) ORDER BY nickname`)
+    .prepare(
+      `SELECT DISTINCT sec_uid, nickname FROM posts WHERE sec_uid IN (${placeholders}) ORDER BY nickname`
+    )
     .all(...visibleSecUids) as PostAuthor[]
   const authors = authorsRows.filter((r) => r.sec_uid && r.nickname)
 
@@ -844,7 +904,9 @@ export function getAllTags(): string[] {
 
   const placeholders = visibleSecUids.map(() => '?').join(',')
   const rows = database
-    .prepare(`SELECT analysis_tags FROM posts WHERE sec_uid IN (${placeholders}) AND analysis_tags IS NOT NULL`)
+    .prepare(
+      `SELECT analysis_tags FROM posts WHERE sec_uid IN (${placeholders}) AND analysis_tags IS NOT NULL`
+    )
     .all(...visibleSecUids) as { analysis_tags: string }[]
 
   const tagSet = new Set<string>()
@@ -888,26 +950,34 @@ export interface AnalysisResult {
 export function getUnanalyzedPostsCount(secUid?: string): number {
   const database = getDatabase()
   if (secUid) {
-    const row = database.prepare(
-      'SELECT COUNT(*) as count FROM posts WHERE sec_uid = ? AND analyzed_at IS NULL'
-    ).get(secUid) as { count: number }
+    const row = database
+      .prepare('SELECT COUNT(*) as count FROM posts WHERE sec_uid = ? AND analyzed_at IS NULL')
+      .get(secUid) as { count: number }
     return row.count
   }
-  const row = database.prepare(
-    'SELECT COUNT(*) as count FROM posts WHERE analyzed_at IS NULL'
-  ).get() as { count: number }
+  const row = database
+    .prepare('SELECT COUNT(*) as count FROM posts WHERE analyzed_at IS NULL')
+    .get() as { count: number }
   return row.count
 }
 
-export function getUnanalyzedPostsCountByUser(): { sec_uid: string; nickname: string; count: number }[] {
+export function getUnanalyzedPostsCountByUser(): {
+  sec_uid: string
+  nickname: string
+  count: number
+}[] {
   const database = getDatabase()
-  return database.prepare(`
+  return database
+    .prepare(
+      `
     SELECT sec_uid, nickname, COUNT(*) as count
     FROM posts
     WHERE analyzed_at IS NULL
     GROUP BY sec_uid
     ORDER BY count DESC
-  `).all() as { sec_uid: string; nickname: string; count: number }[]
+  `
+    )
+    .all() as { sec_uid: string; nickname: string; count: number }[]
 }
 
 export interface UserAnalysisStats {
@@ -932,14 +1002,16 @@ export function getUserAnalysisStats(): UserAnalysisStats[] {
 
   for (const user of allUsers) {
     const stats = database
-      .prepare(`
+      .prepare(
+        `
         SELECT
           COUNT(*) as total,
           SUM(CASE WHEN analyzed_at IS NOT NULL THEN 1 ELSE 0 END) as analyzed,
           SUM(CASE WHEN analyzed_at IS NULL THEN 1 ELSE 0 END) as unanalyzed
         FROM posts
         WHERE sec_uid = ?
-      `)
+      `
+      )
       .get(user.sec_uid) as { total: number; analyzed: number; unanalyzed: number } | undefined
 
     result.push({
@@ -959,13 +1031,15 @@ export function getTotalAnalysisStats(): { total: number; analyzed: number; unan
 
   // 获取所有帖子的分析统计（分析页面不受 show_in_home 限制）
   const stats = database
-    .prepare(`
+    .prepare(
+      `
       SELECT
         COUNT(*) as total,
         SUM(CASE WHEN analyzed_at IS NOT NULL THEN 1 ELSE 0 END) as analyzed,
         SUM(CASE WHEN analyzed_at IS NULL THEN 1 ELSE 0 END) as unanalyzed
       FROM posts
-    `)
+    `
+    )
     .get() as { total: number; analyzed: number; unanalyzed: number }
 
   return stats || { total: 0, analyzed: 0, unanalyzed: 0 }
@@ -993,7 +1067,9 @@ export function getUnanalyzedPosts(secUid?: string, limit?: number): DbPost[] {
 
 export function updatePostAnalysis(id: number, result: AnalysisResult): void {
   const database = getDatabase()
-  database.prepare(`
+  database
+    .prepare(
+      `
     UPDATE posts SET
       analysis_tags = ?,
       analysis_category = ?,
@@ -1002,14 +1078,16 @@ export function updatePostAnalysis(id: number, result: AnalysisResult): void {
       analysis_content_level = ?,
       analyzed_at = strftime('%s', 'now')
     WHERE id = ?
-  `).run(
-    JSON.stringify(result.tags),
-    result.category,
-    result.summary,
-    result.scene,
-    result.content_level,
-    id
-  )
+  `
+    )
+    .run(
+      JSON.stringify(result.tags),
+      result.category,
+      result.summary,
+      result.scene,
+      result.content_level,
+      id
+    )
 }
 
 // 标准化路径前缀（确保尾部有 /）
@@ -1042,12 +1120,7 @@ export function batchReplacePaths(oldBasePath: string, newBasePath: string): num
         music_path = CASE WHEN music_path LIKE ? THEN ? || substr(music_path, ?) ELSE music_path END
       WHERE video_path LIKE ? OR cover_path LIKE ? OR music_path LIKE ?`
     )
-    .run(
-      like, newPrefix, len,
-      like, newPrefix, len,
-      like, newPrefix, len,
-      like, like, like
-    )
+    .run(like, newPrefix, len, like, newPrefix, len, like, newPrefix, len, like, like, like)
   return result.changes
 }
 
@@ -1164,6 +1237,21 @@ export function getContentLevelDistribution(): LevelDistItem[] {
        GROUP BY level ORDER BY level`
     )
     .all() as LevelDistItem[]
+}
+
+export function deletePostByAwemeId(awemeId: string): DbPost | undefined {
+  const database = getDatabase()
+  const post = getPostByAwemeId(awemeId)
+  if (!post) return undefined
+  database.prepare('DELETE FROM posts WHERE aweme_id = ?').run(awemeId)
+  return post
+}
+
+export function getPostsByUserIdAll(userId: number): DbPost[] {
+  const database = getDatabase()
+  return database
+    .prepare('SELECT * FROM posts WHERE user_id = ? ORDER BY downloaded_at DESC')
+    .all(userId) as DbPost[]
 }
 
 export function closeDatabase(): void {

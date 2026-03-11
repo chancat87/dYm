@@ -18,6 +18,7 @@ import {
   type DbTaskWithUsers,
   type DbUser
 } from '../database'
+import { validateDownloadFolder, cleanupFailedDownload } from './download-validator'
 
 // 并发控制函数
 async function runWithConcurrency<T>(
@@ -354,15 +355,29 @@ async function downloadUserVideos(
           try {
             await downloader.createDownloadTasks(awemeData, userPath)
 
-            // 图文作品转 JPG
+            const folderPath = join(userPath, folderName)
+
+            // Validate download
+            if (!validateDownloadFolder(folderPath, awemeData.awemeType || 0)) {
+              // Cleanup and retry once
+              cleanupFailedDownload(folderPath)
+              await downloader.createDownloadTasks(awemeData, userPath)
+
+              if (!validateDownloadFolder(folderPath, awemeData.awemeType || 0)) {
+                console.error(`[Downloader] Validation failed after retry for ${awemeId}`)
+                cleanupFailedDownload(folderPath)
+                return false
+              }
+            }
+
+            // Image to JPG conversion
             if (
               (awemeData.awemeType || 0) === 68 &&
               getSetting('convert_images_to_jpg') === 'true'
             ) {
-              await convertFolderImagesToJpg(join(userPath, folderName))
+              await convertFolderImagesToJpg(folderPath)
             }
 
-            // 入库
             createPost({
               aweme_id: awemeId,
               user_id: user.id,
@@ -381,6 +396,7 @@ async function downloadUserVideos(
             return true
           } catch (error) {
             console.error(`[Downloader] Failed to download ${awemeId}:`, error)
+            cleanupFailedDownload(join(userPath, folderName))
             return false
           }
         })

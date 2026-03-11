@@ -9,6 +9,7 @@ import {
   updateUserSyncStatus
 } from '../database'
 import { convertFolderImagesToJpg } from './downloader'
+import { validateDownloadFolder, cleanupFailedDownload } from './download-validator'
 
 export interface SyncProgress {
   userId: number
@@ -238,7 +239,21 @@ export async function startUserSync(userId: number): Promise<void> {
           try {
             await downloader.createDownloadTasks(awemeData, userPath)
 
-            // 图文作品转 JPG
+            const folderPath = join(userPath, awemeId)
+
+            // Validate download
+            if (!validateDownloadFolder(folderPath, awemeData.awemeType || 0)) {
+              cleanupFailedDownload(folderPath)
+              await downloader.createDownloadTasks(awemeData, userPath)
+
+              if (!validateDownloadFolder(folderPath, awemeData.awemeType || 0)) {
+                console.error(`[Syncer] Validation failed after retry for ${awemeId}`)
+                cleanupFailedDownload(folderPath)
+                return false
+              }
+            }
+
+            // Image to JPG conversion
             if (
               (awemeData.awemeType || 0) === 68 &&
               getSetting('convert_images_to_jpg') === 'true'
@@ -264,6 +279,7 @@ export async function startUserSync(userId: number): Promise<void> {
             return true
           } catch (error) {
             console.error(`[Syncer] Failed to download ${awemeId}:`, error)
+            cleanupFailedDownload(join(userPath, awemeId))
             return false
           }
         })
